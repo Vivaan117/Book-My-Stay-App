@@ -19,7 +19,7 @@ class Room {
     }
 }
 
-// Inventory (State Holder - NOW MUTABLE)
+// Inventory (State Holder)
 class Inventory {
     private Map<String, Integer> availability = new HashMap<>();
 
@@ -27,8 +27,7 @@ class Inventory {
         availability.put(type, count);
     }
 
-    // synchronized for thread safety (basic concurrency control)
-    public synchronized boolean bookRoom(String type) {
+    public synchronized boolean allocateRoom(String type) {
         int count = availability.getOrDefault(type, 0);
 
         if (count > 0) {
@@ -43,26 +42,54 @@ class Inventory {
     }
 }
 
-// Booking Service (Write operation)
+// Reservation Model
+class Reservation {
+    private String reservationId;
+    private String roomType;
+
+    public Reservation(String reservationId, String roomType) {
+        this.reservationId = reservationId;
+        this.roomType = roomType;
+    }
+
+    public void display() {
+        System.out.println("Reservation Confirmed!");
+        System.out.println("Reservation ID: " + reservationId);
+        System.out.println("Room Type: " + roomType);
+        System.out.println("----------------------------");
+    }
+}
+
+// Booking Service (Confirmation + Allocation)
 class BookingService {
     private Inventory inventory;
+    private Map<String, Reservation> reservations = new HashMap<>();
 
     public BookingService(Inventory inventory) {
         this.inventory = inventory;
     }
 
-    public void book(String roomType) {
-        boolean success = inventory.bookRoom(roomType);
+    public void confirmBooking(String roomType) {
+        boolean allocated = inventory.allocateRoom(roomType);
 
-        if (success) {
-            System.out.println("✅ Booking successful for: " + roomType);
+        if (allocated) {
+            String reservationId = generateReservationId();
+            Reservation reservation = new Reservation(reservationId, roomType);
+
+            reservations.put(reservationId, reservation);
+
+            reservation.display();
         } else {
-            System.out.println("❌ Booking failed. No rooms available for: " + roomType);
+            System.out.println("❌ Booking Failed: No rooms available for " + roomType);
         }
+    }
+
+    private String generateReservationId() {
+        return "RES" + System.currentTimeMillis();
     }
 }
 
-// Main Class
+// Main Class (IMPORTANT: Your preferred name)
 public class BookMyStay {
     public static void main(String[] args) {
 
@@ -74,11 +101,10 @@ public class BookMyStay {
         // Step 2: Booking Service
         BookingService bookingService = new BookingService(inventory);
 
-        // Step 3: Simulate multiple booking requests (First-Come-First-Served)
-        bookingService.book("Single"); // should succeed
-        bookingService.book("Single"); // should fail (no rooms left)
+        // Step 3: Confirm Reservations
+        bookingService.confirmBooking("Single"); // success
+        bookingService.confirmBooking("Single"); // fail
 
-        bookingService.book("Double"); // succeed
-        bookingService.book("Double"); // fail
+        bookingService.confirmBooking("Double"); // success
     }
 }
