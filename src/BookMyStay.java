@@ -1,5 +1,12 @@
 import java.util.*;
 
+// Custom Exception
+class InvalidBookingException extends Exception {
+    public InvalidBookingException(String message) {
+        super(message);
+    }
+}
+
 // Room Model
 class Room {
     private String type;
@@ -10,26 +17,7 @@ class Room {
         this.price = price;
     }
 
-    public String getType() {
-        return type;
-    }
-
-    public double getPrice() {
-        return price;
-    }
-}
-
-// Add-On Service
-class AddOnService {
-    private String name;
-    private double price;
-
-    public AddOnService(String name, double price) {
-        this.name = name;
-        this.price = price;
-    }
-
-    public String getName() { return name; }
+    public String getType() { return type; }
     public double getPrice() { return price; }
 }
 
@@ -41,13 +29,18 @@ class Inventory {
         availability.put(type, count);
     }
 
-    public synchronized boolean allocateRoom(String type) {
-        int count = availability.getOrDefault(type, 0);
-        if (count > 0) {
-            availability.put(type, count - 1);
-            return true;
+    public synchronized void allocateRoom(String type) throws InvalidBookingException {
+        if (!availability.containsKey(type)) {
+            throw new InvalidBookingException("Invalid room type: " + type);
         }
-        return false;
+
+        int count = availability.get(type);
+
+        if (count <= 0) {
+            throw new InvalidBookingException("No rooms available for: " + type);
+        }
+
+        availability.put(type, count - 1);
     }
 }
 
@@ -55,31 +48,16 @@ class Inventory {
 class Reservation {
     private String id;
     private Room room;
-    private List<AddOnService> services = new ArrayList<>();
 
     public Reservation(String id, Room room) {
         this.id = id;
         this.room = room;
     }
 
-    public void addService(AddOnService s) {
-        services.add(s);
-    }
-
-    public double getTotalCost() {
-        double total = room.getPrice();
-        for (AddOnService s : services) {
-            total += s.getPrice();
-        }
-        return total;
-    }
-
-    public String getId() { return id; }
-
     public void display() {
         System.out.println("Reservation ID: " + id);
         System.out.println("Room: " + room.getType());
-        System.out.println("Total Cost: ₹" + getTotalCost());
+        System.out.println("Price: ₹" + room.getPrice());
         System.out.println("----------------------");
     }
 }
@@ -87,45 +65,43 @@ class Reservation {
 // Booking Service
 class BookingService {
     private Inventory inventory;
-    private Map<String, Reservation> reservations = new HashMap<>();
     private Map<String, Room> roomCatalog;
+    private Map<String, Reservation> reservations = new HashMap<>();
 
     public BookingService(Inventory inventory, Map<String, Room> roomCatalog) {
         this.inventory = inventory;
         this.roomCatalog = roomCatalog;
     }
 
-    public Reservation book(String roomType) {
-        if (inventory.allocateRoom(roomType)) {
+    public void book(String roomType) {
+        try {
+            validate(roomType);
+
+            inventory.allocateRoom(roomType);
+
             String id = "RES" + System.currentTimeMillis();
             Reservation r = new Reservation(id, roomCatalog.get(roomType));
             reservations.put(id, r);
-            return r;
-        }
-        return null;
-    }
 
-    public Collection<Reservation> getAllReservations() {
-        return reservations.values();
-    }
-}
-
-// Reporting Service (NEW)
-class ReportingService {
-    public void showReport(Collection<Reservation> reservations) {
-        int totalBookings = reservations.size();
-        double totalRevenue = 0;
-
-        System.out.println("📊 Booking Report");
-        System.out.println("----------------------");
-
-        for (Reservation r : reservations) {
+            System.out.println("✅ Booking Successful");
             r.display();
-            totalRevenue += r.getTotalCost();
+
+        } catch (InvalidBookingException e) {
+            System.out.println("❌ Error: " + e.getMessage());
+        } catch (Exception e) {
+            System.out.println("⚠ Unexpected error occurred");
+        }
+    }
+
+    // Validation Logic
+    private void validate(String roomType) throws InvalidBookingException {
+        if (roomType == null || roomType.trim().isEmpty()) {
+            throw new InvalidBookingException("Room type cannot be empty");
         }
 
-        System.out.println("Total Bookings: " + totalBookings);
-        System.out.println("Total Revenue: ₹" + totalRevenue);
+        if (!roomCatalog.containsKey(roomType)) {
+            throw new InvalidBookingException("Room type does not exist");
+        }
     }
 }
 
@@ -135,19 +111,17 @@ public class BookMyStay {
 
         // Setup
         Inventory inventory = new Inventory();
-        inventory.addRoom("Single", 2);
+        inventory.addRoom("Single", 1);
 
         Map<String, Room> roomCatalog = new HashMap<>();
         roomCatalog.put("Single", new Room("Single", 2000));
 
-        BookingService bookingService = new BookingService(inventory, roomCatalog);
+        BookingService service = new BookingService(inventory, roomCatalog);
 
-        // Simulate bookings
-        Reservation r1 = bookingService.book("Single");
-        Reservation r2 = bookingService.book("Single");
-
-        // Reporting
-        ReportingService report = new ReportingService();
-        report.showReport(bookingService.getAllReservations());
+        // Test Cases
+        service.book("Single");   // ✅ valid
+        service.book("Single");   // ❌ no availability
+        service.book("Double");   // ❌ invalid type
+        service.book("");         // ❌ empty input
     }
 }
