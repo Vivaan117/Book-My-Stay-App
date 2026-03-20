@@ -1,12 +1,5 @@
 import java.util.*;
 
-// Custom Exception
-class BookingException extends Exception {
-    public BookingException(String message) {
-        super(message);
-    }
-}
-
 // Room Model
 class Room {
     private String type;
@@ -21,7 +14,7 @@ class Room {
     public double getPrice() { return price; }
 }
 
-// Inventory
+// Inventory (Thread-Safe)
 class Inventory {
     private Map<String, Integer> availability = new HashMap<>();
 
@@ -29,19 +22,15 @@ class Inventory {
         availability.put(type, count);
     }
 
-    public synchronized void allocateRoom(String type) throws BookingException {
+    // synchronized ensures only one thread accesses at a time
+    public synchronized boolean allocateRoom(String type) {
         int count = availability.getOrDefault(type, 0);
 
-        if (count <= 0) {
-            throw new BookingException("No rooms available for " + type);
+        if (count > 0) {
+            availability.put(type, count - 1);
+            return true;
         }
-
-        availability.put(type, count - 1);
-    }
-
-    public synchronized void releaseRoom(String type) {
-        int count = availability.getOrDefault(type, 0);
-        availability.put(type, count + 1);
+        return false;
     }
 
     public int getAvailability(String type) {
@@ -49,119 +38,73 @@ class Inventory {
     }
 }
 
-// Reservation
-class Reservation {
-    private String id;
-    private Room room;
-    private boolean isActive;
-
-    public Reservation(String id, Room room) {
-        this.id = id;
-        this.room = room;
-        this.isActive = true;
-    }
-
-    public String getId() { return id; }
-    public Room getRoom() { return room; }
-    public boolean isActive() { return isActive; }
-
-    public void cancel() {
-        isActive = false;
-    }
-
-    public void display() {
-        System.out.println("Reservation ID: " + id);
-        System.out.println("Room: " + room.getType());
-        System.out.println("Status: " + (isActive ? "Active" : "Cancelled"));
-        System.out.println("----------------------");
-    }
-}
-
 // Booking Service
 class BookingService {
     private Inventory inventory;
-    private Map<String, Room> roomCatalog;
-    private Map<String, Reservation> reservations = new HashMap<>();
 
-    public BookingService(Inventory inventory, Map<String, Room> roomCatalog) {
+    public BookingService(Inventory inventory) {
         this.inventory = inventory;
-        this.roomCatalog = roomCatalog;
     }
 
-    // Booking
-    public String book(String roomType) {
-        try {
-            inventory.allocateRoom(roomType);
+    public void book(String user, String roomType) {
+        boolean success = inventory.allocateRoom(roomType);
 
-            String id = "RES" + System.currentTimeMillis();
-            Reservation r = new Reservation(id, roomCatalog.get(roomType));
-            reservations.put(id, r);
-
-            System.out.println("✅ Booking Successful: " + id);
-            return id;
-
-        } catch (Exception e) {
-            System.out.println("❌ Booking Failed: " + e.getMessage());
-            return null;
-        }
-    }
-
-    // Cancellation + Rollback
-    public void cancelBooking(String reservationId) {
-        Reservation r = reservations.get(reservationId);
-
-        if (r == null) {
-            System.out.println("❌ Invalid Reservation ID");
-            return;
-        }
-
-        if (!r.isActive()) {
-            System.out.println("❌ Booking already cancelled");
-            return;
-        }
-
-        // Rollback inventory
-        inventory.releaseRoom(r.getRoom().getType());
-
-        // Mark as cancelled
-        r.cancel();
-
-        System.out.println("✅ Booking Cancelled: " + reservationId);
-    }
-
-    public void showAll() {
-        for (Reservation r : reservations.values()) {
-            r.display();
+        if (success) {
+            System.out.println("✅ " + user + " successfully booked " + roomType);
+        } else {
+            System.out.println("❌ " + user + " failed to book " + roomType + " (Sold Out)");
         }
     }
 }
 
-// Main Class (IMPORTANT)
+// Thread Class (Simulates User)
+class BookingTask implements Runnable {
+    private BookingService service;
+    private String user;
+    private String roomType;
+
+    public BookingTask(BookingService service, String user, String roomType) {
+        this.service = service;
+        this.user = user;
+        this.roomType = roomType;
+    }
+
+    @Override
+    public void run() {
+        service.book(user, roomType);
+    }
+}
+
+// Main Class
 public class BookMyStay {
     public static void main(String[] args) {
 
         // Setup
         Inventory inventory = new Inventory();
-        inventory.addRoom("Single", 1);
+        inventory.addRoom("Single", 1); // Only 1 room
 
-        Map<String, Room> roomCatalog = new HashMap<>();
-        roomCatalog.put("Single", new Room("Single", 2000));
+        BookingService service = new BookingService(inventory);
 
-        BookingService service = new BookingService(inventory, roomCatalog);
+        // Simulate multiple users booking simultaneously
+        Thread t1 = new Thread(new BookingTask(service, "User1", "Single"));
+        Thread t2 = new Thread(new BookingTask(service, "User2", "Single"));
+        Thread t3 = new Thread(new BookingTask(service, "User3", "Single"));
 
-        // Step 1: Book
-        String resId = service.book("Single");
+        // Start threads (concurrent execution)
+        t1.start();
+        t2.start();
+        t3.start();
 
-        // Step 2: Cancel
-        service.cancelBooking(resId);
+        // Wait for all threads to finish
+        try {
+            t1.join();
+            t2.join();
+            t3.join();
+        } catch (InterruptedException e) {
+            System.out.println("Thread interrupted");
+        }
 
-        // Step 3: Try cancel again (edge case)
-        service.cancelBooking(resId);
-
-        // Step 4: Check inventory rollback
-        System.out.println("Available Single Rooms: " + inventory.getAvailability("Single"));
-
-        // Step 5: Show all bookings
-        service.showAll();
+        // Final availability
+        System.out.println("Remaining Rooms: " + inventory.getAvailability("Single"));
     }
 }
